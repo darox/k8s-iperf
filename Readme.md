@@ -14,6 +14,12 @@ To use k8s-iperf, you need to have access to a Kubernetes cluster and the `kubec
 make build
 ```
 
+or
+
+```
+go build -ldflags="-s -w" -o k8s-iperf ./cmd/main.go
+```
+
 ### Install binary
 
 ```
