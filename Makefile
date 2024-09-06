@@ -6,11 +6,15 @@ DOCKER_TAG := latest
 # Go build flags
 GO_BUILD_FLAGS := -ldflags="-s -w"
 
-.PHONY: all build docker clean
+.PHONY: all build docker clean lint
 
-all: build docker push
+all: lint build docker push
 
-build:
+lint:
+	@echo "Running golangci-lint..."
+	golangci-lint run ./...
+
+build: lint
 	@echo "Building Go binary..."
 	go build $(GO_BUILD_FLAGS) -o $(BINARY_NAME) ./cmd/main.go
 

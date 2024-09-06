@@ -2,6 +2,7 @@ package iperf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,6 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 )
+
+// At the package level, add this static error:
+var errIperf3ClientPodFailed = errors.New("iperf3 client pod failed")
 
 // TestConfig holds the configuration for the iperf3 test
 type TestConfig struct {
@@ -247,7 +251,7 @@ PodCompleted:
 	fmt.Println(string(logs))
 
 	if podPhase == corev1.PodFailed {
-		return fmt.Errorf("iperf3 client pod failed")
+		return fmt.Errorf("iperf3 client execution: %w", errIperf3ClientPodFailed)
 	}
 
 	return nil
