@@ -1,5 +1,10 @@
 # k8s-iperf
 
+![k8s-iperf screenshot](assets/screenshot.png)
+
+
+
+
 k8s-iperf is a tool to test the network performance between two nodes in a Kubernetes cluster using iperf3.
 
 ## Installation
