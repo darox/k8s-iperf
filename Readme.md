@@ -88,3 +88,28 @@ docker pull dariomader/iperf3:latest
 ```
 
 You can also build the image yourself using the Dockerfile in this repository.
+
+As of 06.09.2024 the image has no vulnerabilities according to trivy:
+
+```
+trivy image dariomader/iperf3:latest
+2024-09-06T13:37:03+02:00       INFO    [vuln] Vulnerability scanning is enabled
+2024-09-06T13:37:03+02:00       INFO    [secret] Secret scanning is enabled
+2024-09-06T13:37:03+02:00       INFO    [secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2024-09-06T13:37:03+02:00       INFO    [secret] Please see also https://aquasecurity.github.io/trivy/v0.55/docs/scanner/secret#recommendation for faster secret detection
+2024-09-06T13:37:03+02:00       INFO    Detected OS     family="alpine" version="3.18.8"
+2024-09-06T13:37:03+02:00       INFO    [alpine] Detecting vulnerabilities...   os_version="3.18" repository="3.18" pkg_num=18
+2024-09-06T13:37:03+02:00       INFO    Number of language-specific files       num=0
+
+dariomader/iperf3:latest (alpine 3.18.8)
+
+Total: 0 (UNKNOWN: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0)
+```
+
+The image is also only `17.2MB` in size.
+
+## Future plans
+- Add better output formatting
+
+
+
