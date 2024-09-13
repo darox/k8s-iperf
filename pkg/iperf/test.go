@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,19 +16,34 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+
+	"encoding/json"
+
+	"github.com/fatih/color"
 )
 
 // At the package level, add this static error:
 var errIperf3ClientPodFailed = errors.New("iperf3 client pod failed")
 
+// Add static error variables
+var (
+	errEmptyLogs             = errors.New("iperf3 client returned empty logs")
+	errMissingStartField     = errors.New("missing or invalid 'start' field in JSON data")
+	errMissingEndField       = errors.New("missing or invalid 'end' field in JSON data")
+	errMissingConnectedField = errors.New("missing or invalid 'connected' field in JSON data")
+	errInvalidConnectedData  = errors.New("invalid 'connected' data structure in JSON data")
+)
+
 // TestConfig holds the configuration for the iperf3 test
 type TestConfig struct {
 	Client     *kubernetes.Clientset
 	Namespace  string
+	Domain     string
 	Image      string
 	IperfArgs  []string
 	ServerNode string
 	ClientNode string
+	Cleanup    bool
 }
 
 func RunTest(config TestConfig) error {
@@ -58,33 +74,47 @@ func RunTest(config TestConfig) error {
 }
 
 func runTestInternal(ctx context.Context, config TestConfig) error {
+	// Defer cleanup if Cleanup is set to true
+	if config.Cleanup {
+		defer func() {
+			if err := cleanup(config.Client, config.Namespace); err != nil {
+				fmt.Printf("Failed to cleanup resources: %v\n", err)
+			}
+		}()
+	}
+
 	// Deploy iperf3 server
 	if err := deployIperf3Server(config); err != nil {
+		color.Red("✘ Failed to deploy iperf3 server: %v", err)
 		return fmt.Errorf("failed to deploy iperf3 server: %w", err)
 	}
-	fmt.Println("iperf3 server deployed successfully")
+	color.Green("✔ iperf3 server deployed successfully")
 
 	// Create service for iperf3 server
 	if err := createIperf3Service(config.Client, config.Namespace); err != nil {
+		color.Red("✘ Failed to create iperf3 service: %v", err)
 		return fmt.Errorf("failed to create iperf3 service: %w", err)
 	}
-	fmt.Println("iperf3 service created successfully")
+	color.Green("✔ iperf3 service created successfully")
 
 	// Wait for server to be ready
 	if err := waitForDeploymentReady(config.Client, config.Namespace, "iperf3-server", 60*time.Second); err != nil {
+		color.Red("✘ iperf3 server failed to become ready: %v", err)
 		return fmt.Errorf("iperf3 server failed to become ready: %w", err)
 	}
 
-	// Run iperf3 client
-	fmt.Println("Running iperf3 test................")
-	err := runIperf3Client(ctx, config)
-	if err != nil {
-		return fmt.Errorf("iperf3 client test failed: %w", err)
+	// Add this: Wait for the iperf3 server pod to be ready
+	if err := waitForPodReady(ctx, config.Client, config.Namespace, "app=iperf3-server", 60*time.Second); err != nil {
+		color.Red("✘ iperf3 server pod failed to become ready: %v", err)
+		return fmt.Errorf("iperf3 server pod failed to become ready: %w", err)
 	}
 
-	// Cleanup resources
-	if err := cleanup(config.Client, config.Namespace); err != nil {
-		return fmt.Errorf("failed to cleanup resources: %w", err)
+	color.Green("✔ iperf3 server is up and ready")
+
+	err := runIperf3Client(ctx, config)
+	if err != nil {
+		color.Red("✘ iperf3 client test failed: %v", err)
+		return fmt.Errorf("iperf3 client test failed: %w", err)
 	}
 
 	return nil
@@ -132,6 +162,15 @@ func deployIperf3Server(config TestConfig) error {
 								ReadOnlyRootFilesystem: boolPtr(false),
 							},
 							ImagePullPolicy: corev1.PullAlways,
+							StartupProbe: &corev1.Probe{
+								Handler: corev1.Handler{
+									TCPSocket: &corev1.TCPSocketAction{
+										Port: intstr.FromInt(5201),
+									},
+								},
+								InitialDelaySeconds: 5,
+								FailureThreshold:    1,
+							},
 						},
 					},
 				},
@@ -176,7 +215,8 @@ func createIperf3Service(client *kubernetes.Clientset, namespace string) error {
 }
 
 func runIperf3Client(ctx context.Context, config TestConfig) error {
-	args := []string{"-c", "iperf3-server"}
+	serverFQDN := fmt.Sprintf("iperf3-server.%s.svc.%s", config.Namespace, config.Domain)
+	args := []string{"-c", serverFQDN, "-J"}
 	args = append(args, config.IperfArgs...)
 
 	pod := &corev1.Pod{
@@ -220,6 +260,10 @@ func runIperf3Client(ctx context.Context, config TestConfig) error {
 		return err
 	}
 
+	color.Green("✔ iperf3 client pod created successfully")
+
+	color.Green("► Starting iperf3 test")
+
 	// Wait for the client pod to complete
 	var podPhase corev1.PodPhase
 	for {
@@ -248,10 +292,112 @@ PodCompleted:
 		return err
 	}
 
-	fmt.Println(string(logs))
+	// Check if logs are empty
+	if len(logs) == 0 {
+		color.Red("✘ iperf3 client returned empty logs")
+		return errEmptyLogs
+	}
+
+	// Parse and print the formatted summary
+	if err := printIperfSummary(logs); err != nil {
+		color.Red("✘ Failed to parse iperf output: %v", err)
+		return fmt.Errorf("failed to parse iperf output: %w", err)
+	}
 
 	if podPhase == corev1.PodFailed {
-		return fmt.Errorf("iperf3 client execution: %w", errIperf3ClientPodFailed)
+		return errIperf3ClientPodFailed
+	}
+
+	return nil
+}
+
+func printIperfSummary(jsonData []byte) error {
+	var result map[string]interface{}
+	if err := json.Unmarshal(jsonData, &result); err != nil {
+		return fmt.Errorf("failed to unmarshal JSON data: %w", err)
+	}
+
+	// Check if the required fields exist
+	start, ok := result["start"].(map[string]interface{})
+	if !ok {
+		return errMissingStartField
+	}
+
+	end, ok := result["end"].(map[string]interface{})
+	if !ok {
+		return errMissingEndField
+	}
+
+	connected, ok := start["connected"].([]interface{})
+	if !ok || len(connected) == 0 {
+		return errMissingConnectedField
+	}
+
+	connectedMap, ok := connected[0].(map[string]interface{})
+	if !ok {
+		return errInvalidConnectedData
+	}
+
+	// Extract relevant information
+	testStart := start["test_start"].(map[string]interface{})
+	sumSent := end["sum_sent"].(map[string]interface{})
+	sumReceived := end["sum_received"].(map[string]interface{})
+
+	// Print summary
+	fmt.Println() // Add a line break here
+	summaryTitle := "iPerf3 Test Summary"
+	color.Cyan(summaryTitle)
+
+	cpuUtil := end["cpu_utilization_percent"].(map[string]interface{})
+
+	// Prepare all lines
+	lines := []string{
+		fmt.Sprintf("Connection Details:"),
+		fmt.Sprintf("  Local:  %s:%d", connectedMap["local_host"], int(connectedMap["local_port"].(float64))),
+		fmt.Sprintf("  Remote: %s:%d", connectedMap["remote_host"], int(connectedMap["remote_port"].(float64))),
+		fmt.Sprintf(""),
+		fmt.Sprintf("Test Configuration:"),
+		fmt.Sprintf("  Protocol: %s", testStart["protocol"]),
+		fmt.Sprintf("  Duration: %.2f seconds", sumSent["seconds"]),
+		fmt.Sprintf("  Parallel Streams: %d", int(testStart["num_streams"].(float64))),
+		fmt.Sprintf(""),
+		fmt.Sprintf("Results:"),
+		fmt.Sprintf("  Sent:     %.2f Mbits/sec", sumSent["bits_per_second"].(float64)/1e6),
+		fmt.Sprintf("  Received: %.2f Mbits/sec", sumReceived["bits_per_second"].(float64)/1e6),
+	}
+
+	if retransmits, ok := sumSent["retransmits"]; ok {
+		lines = append(lines, fmt.Sprintf("  Retransmits: %d", int(retransmits.(float64))))
+	}
+
+	lines = append(lines,
+		fmt.Sprintf(""),
+		fmt.Sprintf("CPU Utilization:"),
+		fmt.Sprintf("  Local:  %.2f%%", cpuUtil["host_total"].(float64)),
+		fmt.Sprintf("  Remote: %.2f%%", cpuUtil["remote_total"].(float64)),
+	)
+
+	// Calculate the length of the longest line
+	maxLength := len(summaryTitle)
+	for _, line := range lines {
+		if len(line) > maxLength {
+			maxLength = len(line)
+		}
+	}
+
+	// Print dashes
+	color.Cyan(strings.Repeat("-", maxLength))
+
+	// Print all lines
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Connection Details:") ||
+			strings.HasPrefix(line, "Test Configuration:") ||
+			strings.HasPrefix(line, "Results:") ||
+			strings.HasPrefix(line, "CPU Utilization:") {
+			color.Yellow(line)
+		} else {
+			fmt.Println(line)
+		}
 	}
 
 	return nil
@@ -289,5 +435,31 @@ func waitForDeploymentReady(client *kubernetes.Clientset, namespace, deploymentN
 		}
 
 		return deployment.Status.ReadyReplicas == *deployment.Spec.Replicas, nil
+	})
+}
+
+// Add this new function
+func waitForPodReady(ctx context.Context, client *kubernetes.Clientset, namespace, labelSelector string, timeout time.Duration) error {
+	return wait.PollImmediate(time.Second, timeout, func() (bool, error) {
+		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+		if err != nil {
+			return false, err
+		}
+
+		if len(pods.Items) == 0 {
+			return false, nil
+		}
+
+		for _, pod := range pods.Items {
+			if pod.Status.Phase == corev1.PodRunning {
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+						return true, nil
+					}
+				}
+			}
+		}
+
+		return false, nil
 	})
 }

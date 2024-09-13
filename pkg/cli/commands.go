@@ -23,6 +23,9 @@ var runCmd = &cobra.Command{
 		image, _ := cmd.Flags().GetString("k8s-image")
 		serverNode, _ := cmd.Flags().GetString("k8s-server-node")
 		clientNode, _ := cmd.Flags().GetString("k8s-client-node")
+		domain, _ := cmd.Flags().GetString("k8s-domain")
+		cleanup, _ := cmd.Flags().GetBool("k8s-cleanup")
+
 		client, err := k8s.NewClient()
 		if err != nil {
 			return fmt.Errorf("failed to create Kubernetes client: %w", err)
@@ -41,6 +44,8 @@ var runCmd = &cobra.Command{
 			IperfArgs:  iperfArgs,
 			ServerNode: serverNode,
 			ClientNode: clientNode,
+			Domain:     domain,
+			Cleanup:    cleanup,
 		}
 
 		return iperf.RunTest(config)
@@ -52,6 +57,8 @@ func init() {
 	runCmd.Flags().StringP("k8s-image", "", "dariomader/iperf3:latest", "Docker image to use for the test")
 	runCmd.Flags().StringP("k8s-server-node", "", "", "Server node to use for the test")
 	runCmd.Flags().StringP("k8s-client-node", "", "", "Client node to use for the test")
+	runCmd.Flags().StringP("k8s-domain", "", "cluster.local", "Kubernetes domain to use for the test")
+	runCmd.Flags().BoolP("k8s-cleanup", "", true, "Cleanup resources after the test")
 	rootCmd.AddCommand(runCmd)
 }
 
