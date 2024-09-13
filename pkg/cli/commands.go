@@ -2,12 +2,14 @@ package cli
 
 import (
 	"fmt"
-
-	"github.com/darox/k8s-iperf/pkg/k8s"
+	"os"
+	"path/filepath"
 
 	"github.com/darox/k8s-iperf/pkg/iperf"
-
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var rootCmd = &cobra.Command{
@@ -26,7 +28,7 @@ var runCmd = &cobra.Command{
 		domain, _ := cmd.Flags().GetString("k8s-domain")
 		cleanup, _ := cmd.Flags().GetBool("k8s-cleanup")
 
-		client, err := k8s.NewClient()
+		clientset, err := getClientset()
 		if err != nil {
 			return fmt.Errorf("failed to create Kubernetes client: %w", err)
 		}
@@ -38,7 +40,7 @@ var runCmd = &cobra.Command{
 		}
 
 		config := iperf.TestConfig{
-			Client:     client,
+			Client:     clientset,
 			Namespace:  namespace,
 			Image:      image,
 			IperfArgs:  iperfArgs,
@@ -50,6 +52,35 @@ var runCmd = &cobra.Command{
 
 		return iperf.RunTest(config)
 	},
+}
+
+func getClientset() (*kubernetes.Clientset, error) {
+	var config *rest.Config
+	var err error
+
+	// Check if running inside a Kubernetes cluster
+	if _, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
+		// Use in-cluster config
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Use kubeconfig
+		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Create the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
 }
 
 func init() {

@@ -1,0 +1,39 @@
+# Build stage
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/k8s-iperf ./cmd/main.go
+
+# Final stage
+FROM alpine:3.18
+
+# Update and upgrade all packages, including openssl
+RUN apk update && apk upgrade
+
+# Install ca-certificates for potential HTTPS communication
+RUN apk add --no-cache ca-certificates
+
+# Create a non-root user
+RUN adduser -D -g '' -u 10000 -s /sbin/nologin appuser
+
+WORKDIR /app
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/k8s-iperf .
+
+# Use the non-root user
+USER appuser
+
+# Run the binary
+ENTRYPOINT ["/app/k8s-iperf"]

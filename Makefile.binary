@@ -1,0 +1,21 @@
+# Variables
+BINARY_NAME := k8s-iperf
+
+# Go build flags
+GO_BUILD_FLAGS := -ldflags="-s -w"
+
+.PHONY: all build clean lint
+
+all: lint build
+
+lint:
+	@echo "Running golangci-lint..."
+	golangci-lint run ./...
+
+build: lint
+	@echo "Building Go binary..."
+	go build $(GO_BUILD_FLAGS) -o $(BINARY_NAME) ./cmd/main.go
+
+clean:
+	@echo "Cleaning up binary..."
+	rm -f $(BINARY_NAME)

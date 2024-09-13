@@ -1,0 +1,44 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-iperf-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k8s-iperf-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "delete", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8s-iperf-rolebinding
+subjects:
+- kind: ServiceAccount
+  name: k8s-iperf-sa
+roleRef:
+  kind: Role
+  name: k8s-iperf-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: k8s-iperf
+spec:
+  serviceAccountName: k8s-iperf-sa
+  containers:
+  - name: k8s-iperf
+    image: docker.io/dariomader/k8s-iperf:latest
+    args:
+    - "run"

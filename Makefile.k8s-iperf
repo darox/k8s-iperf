@@ -1,0 +1,13 @@
+# Variables
+DOCKER_IMAGE := dariomader/k8s-iperf
+DOCKER_TAG := latest
+
+.PHONY: docker-build docker-clean
+
+docker-build:
+	@echo "Building Docker k8s-iperf image..."
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) -f Dockerfile-k8s-iperf .
+
+docker-clean:
+	@echo "Cleaning up Docker k8s-iperf image..."
+	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG)
