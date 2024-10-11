@@ -25,8 +25,16 @@ var runCmd = &cobra.Command{
 		clientNode, _ := cmd.Flags().GetString("k8s-client-node")
 		domain, _ := cmd.Flags().GetString("k8s-domain")
 		cleanup, _ := cmd.Flags().GetBool("k8s-cleanup")
+		serverContext, _ := cmd.Flags().GetString("k8s-server-context")
+		clientContext, _ := cmd.Flags().GetString("k8s-client-context")
+		multiCluster, _ := cmd.Flags().GetBool("k8s-multi-cluster")
+		serviceAnnotation, _ := cmd.Flags().GetString("k8s-service-annotation")
+		serverClientSet, err := k8s.NewClient(serverContext)
+		if err != nil {
+			return fmt.Errorf("failed to create Kubernetes client: %w", err)
+		}
 
-		client, err := k8s.NewClient()
+		clientClientSet, err := k8s.NewClient(clientContext)
 		if err != nil {
 			return fmt.Errorf("failed to create Kubernetes client: %w", err)
 		}
@@ -38,14 +46,17 @@ var runCmd = &cobra.Command{
 		}
 
 		config := iperf.TestConfig{
-			Client:     client,
-			Namespace:  namespace,
-			Image:      image,
-			IperfArgs:  iperfArgs,
-			ServerNode: serverNode,
-			ClientNode: clientNode,
-			Domain:     domain,
-			Cleanup:    cleanup,
+			ClientClientSet:   clientClientSet,
+			ServerClientSet:   serverClientSet,
+			Namespace:         namespace,
+			Image:             image,
+			IperfArgs:         iperfArgs,
+			ServerNode:        serverNode,
+			ClientNode:        clientNode,
+			Domain:            domain,
+			Cleanup:           cleanup,
+			MultiCluster:      multiCluster,
+			ServiceAnnotation: serviceAnnotation,
 		}
 
 		return iperf.RunTest(config)
@@ -59,6 +70,10 @@ func init() {
 	runCmd.Flags().StringP("k8s-client-node", "", "", "Client node to use for the test")
 	runCmd.Flags().StringP("k8s-domain", "", "cluster.local", "Kubernetes domain to use for the test")
 	runCmd.Flags().BoolP("k8s-cleanup", "", true, "Cleanup resources after the test")
+	runCmd.Flags().StringP("k8s-server-context", "", "", "Kubernetes server context to use for the test")
+	runCmd.Flags().StringP("k8s-client-context", "", "", "Kubernetes client context to use for the test")
+	runCmd.Flags().BoolP("k8s-multi-cluster", "", false, "Run the test in multi-cluster mode")
+	runCmd.Flags().StringP("k8s-service-annotation", "", "", "Service annotation to use for the test")
 	rootCmd.AddCommand(runCmd)
 }
 
