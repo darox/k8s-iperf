@@ -34,12 +34,22 @@ The basic command to run an iperf test is:
 k8s-iperf run
 ```
 
+Running in multi-cluster mode over Cilium Cluster Mesh:
+
+```
+k8s-iperf run --k8s-service-annotation "service.cilium.io/global=true" --k8s-multi-cluster --k8s-client-context minikube --k8s-server-context kind
+```
+
 ### Flags
 
 - `--k8s-namespace` Specify the Kubernetes namespace to run the test in (default: "default")
 - `--k8s-image` Specify the Docker image to use for the test (default: "dariomader/iperf3:latest")
 - `--k8s-server-node` Specify the Kubernetes node to run the iperf3 server on
 - `--k8s-client-node` Specify the Kubernetes node to run the iperf3 client on
+- `--k8s-service-annotation` Specify the service annotation for the iperf3 server (signature: key1=value1,key2=value2)
+- `--k8s-client-context` Specify the Kubernetes client context to use for the test
+- `--k8s-server-context` Specify the Kubernetes server context to use for the test
+- `--k8s-multi-cluster` Run the test in multi-cluster mode
 
 ### Iperf Arguments
 
