@@ -73,7 +73,7 @@ func init() {
 	runCmd.Flags().StringP("k8s-server-context", "", "", "Kubernetes server context to use for the test")
 	runCmd.Flags().StringP("k8s-client-context", "", "", "Kubernetes client context to use for the test")
 	runCmd.Flags().BoolP("k8s-multi-cluster", "", false, "Run the test in multi-cluster mode")
-	runCmd.Flags().StringP("k8s-service-annotation", "", "", "Service annotation to use for the test")
+	runCmd.Flags().StringP("k8s-service-annotation", "", "", "Service annotation to use for the test (signature: key1=value1,key2=value2)")
 	rootCmd.AddCommand(runCmd)
 }
 
